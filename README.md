@@ -1,4 +1,6 @@
 
+# **Fork of MAUI-Seq for use at AgResearch**
+
 MAUI-seq: Metabarcoding using amplicons with unique molecular identifiers to improve error correction
 ===
 
