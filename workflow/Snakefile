@@ -1,0 +1,311 @@
+# Copyright: CC BY-SA 4.0 - 2025 Benjamin J Perry
+# Version: 1.0
+# Maintainer: Benjamin J Perry
+# Email: ben.perry@agresearch.co.nz
+import os
+import re
+from snakemake.utils import min_version
+
+min_version("9")
+
+print(f"Working directory: {os.getcwd()}")
+print("TOOLS: ")
+os.system('echo "  bash: $(which bash)"')
+os.system('echo "  PYTHON: $(which python)"')
+os.system('echo "  CONDA: $(which conda)"')
+os.system('echo "  SNAKEMAKE: $(which snakemake)"')
+print(f"  TMPDIR = {os.environ.get('TMPDIR', '<n/a>')}")
+os.system('echo "  PYTHON VERSION: $(python --version)"')
+os.system('echo "  CONDA VERSION: $(conda --version)"')
+
+
+# Load configuration variables
+configfile: "config/pipeline_config.yaml"
+
+
+# Expected fastq data to be generated using wgs_prism
+RUN_PATH = config["RUN_PATH"]
+FASTQ_PATH = os.path.join(config["RUN_PATH"], "SampleSheet", "bclconvert")
+RUN = os.path.basename(RUN_PATH)
+# Capture the wildcards using the built-in glob_wildcards function
+print("wildcards string: ", os.path.join(FASTQ_PATH, "{samples}_R1_001.fastq.gz"))
+SAMPLES = glob_wildcards(os.path.join(FASTQ_PATH, "{samples}_R1_001.fastq.gz"))
+
+
+# Global minimum read count for filtering assembled reads
+min_reads = 2500
+
+# env definitions
+seqkit_env = "envs/seqkit-2.4.yaml"
+pear_env = "envs/pear-0.9.6.yaml"
+cutadapt_env = "envs/cutadapt-4.4.yaml"
+
+
+wildcard_constraints:
+    samlpes=r"[a-zA-Z0-9\-\_]+",
+
+
+rule all:
+    input:
+        os.path.join("results", RUN, "00_QC", "report_seqkit_raw.txt"),
+        os.path.join("results", RUN, "00_QC", "report_seqkit_assembled.txt"),
+        os.path.join("results", RUN, "00_QC", "report_seqkit_discarded.txt"),
+        os.path.join("results", RUN, "00_QC", "report_seqkit_unassembled_forward.txt"),
+        os.path.join("results", RUN, "00_QC", "report_seqkit_unassembled_reverse.txt"),
+        collect(
+            os.path.join("results", RUN, "02_cutadapt", "{samples}"),
+            samples=SAMPLES.samples,
+        ),
+
+
+rule report_seqkit_raw:
+    input:
+        read1=collect(
+            os.path.join(FASTQ_PATH, "{samples}_R1_001.fastq.gz"),
+            samples=SAMPLES.samples,
+        ),
+        read2=collect(
+            os.path.join(FASTQ_PATH, "{samples}_R2_001.fastq.gz"),
+            samples=SAMPLES.samples,
+        ),
+    output:
+        report=os.path.join("results", RUN, "00_QC", "report_seqkit_raw.txt"),
+    log:
+        os.path.join("results", RUN, "logs", "report_seqkit_raw.log"),
+    benchmark:
+        os.path.join("results", RUN, "benchmarks", "report_seqkit_raw.txt")
+    conda:
+        seqkit_env
+    threads: 12
+    resources:
+        mem_gb=lambda wildcards, attempt: 4 + ((attempt - 1) * 4),
+        time=lambda wildcards, attempt: 30 + ((attempt - 1) * 60),
+        partition="compute,hugemem,vgpu",
+    shell:
+        "seqkit "
+        "stats "
+        "-j {threads} "
+        "-a {input.read1} {input.read2} "
+        "-o {output} "
+        "2>&1 | tee {log} "
+
+
+rule pear_read_assemble:
+    input:
+        read1=os.path.join(FASTQ_PATH, "{samples}_R1_001.fastq.gz"),
+        read2=os.path.join(FASTQ_PATH, "{samples}_R2_001.fastq.gz"),
+    output:
+        assembled=os.path.join(
+            "results", RUN, "01_assembled", "{samples}.assembled.fastq"
+        ),
+        discarded=temp(
+            os.path.join("results", RUN, "01_assembled", "{samples}.discarded.fastq")
+        ),
+        unassembled_forward=temp(
+            os.path.join(
+                "results", RUN, "01_assembled", "{samples}.unassembled.forward.fastq"
+            )
+        ),
+        unassembled_reverse=temp(
+            os.path.join(
+                "results", RUN, "01_assembled", "{samples}.unassembled.reverse.fastq"
+            )
+        ),
+    conda:
+        pear_env
+    log:
+        os.path.join("results", RUN, "logs", "pear_read_assemble.{samples}.log"),
+    benchmark:
+        os.path.join("results", RUN, "benchmarks", "pear_read_assemble.{samples}.txt")
+    threads: 8
+    resources:
+        mem_gb=8,
+        time=60,
+        partition="compute,hugemem",
+    shell:
+        "pear "
+        "--threads {threads} "
+        "--memory {resources.mem_gb}G "
+        "--forward-fastq {input.read1} "
+        "--reverse-fastq {input.read2} "
+        "--output results/{RUN}/01_assembled/{wildcards.samples} "
+        "2>&1 | tee {log} "
+
+
+rule report_seqkit_assembled:
+    input:
+        reads=collect(
+            os.path.join("results", RUN, "01_assembled", "{samples}.assembled.fastq"),
+            samples=SAMPLES.samples,
+        ),
+    output:
+        report=os.path.join("results", RUN, "00_QC", "report_seqkit_assembled.txt"),
+    log:
+        os.path.join("results", RUN, "logs", "report_seqkit_assembled.log"),
+    benchmark:
+        os.path.join("results", RUN, "benchmarks", "report_seqkit_assembled.txt")
+    conda:
+        seqkit_env
+    threads: 12
+    resources:
+        mem_gb=lambda wildcards, attempt: 4 + ((attempt - 1) * 4),
+        time=lambda wildcards, attempt: 30 + ((attempt - 1) * 60),
+        partition="compute,hugemem,vgpu",
+    shell:
+        "seqkit "
+        "stats "
+        "-j {threads} "
+        "-a {input.reads} "
+        "-o {output.report} "
+        "2>&1 | tee {log} "
+
+
+rule report_seqkit_discarded:
+    input:
+        reads=collect(
+            os.path.join("results", RUN, "01_assembled", "{samples}.discarded.fastq"),
+            samples=SAMPLES.samples,
+        ),
+    output:
+        report=os.path.join("results", RUN, "00_QC", "report_seqkit_discarded.txt"),
+    log:
+        os.path.join("results", RUN, "logs", "report_seqkit_discarded.log"),
+    benchmark:
+        os.path.join("results", RUN, "benchmarks", "report_seqkit_discarded.txt")
+    conda:
+        seqkit_env
+    threads: 12
+    resources:
+        mem_gb=lambda wildcards, attempt: 4 + ((attempt - 1) * 4),
+        time=lambda wildcards, attempt: 30 + ((attempt - 1) * 60),
+        partition="compute,hugemem,vgpu",
+    shell:
+        "seqkit "
+        "stats "
+        "-j {threads} "
+        "-a {input.reads} "
+        "-o {output.report} "
+        "2>&1 | tee {log} "
+
+
+rule report_seqkit_unassembled_forward:
+    input:
+        reads=collect(
+            os.path.join(
+                "results", RUN, "01_assembled", "{samples}.unassembled.forward.fastq"
+            ),
+            samples=SAMPLES.samples,
+        ),
+    output:
+        report=os.path.join(
+            "results", RUN, "00_QC", "report_seqkit_unassembled_forward.txt"
+        ),
+    log:
+        os.path.join("results", RUN, "logs", "report_seqkit_unassembled_forward.log"),
+    benchmark:
+        os.path.join(
+            "results", RUN, "benchmarks", "report_seqkit_unassembled_forward.txt"
+        )
+    conda:
+        seqkit_env
+    threads: 12
+    resources:
+        mem_gb=lambda wildcards, attempt: 4 + ((attempt - 1) * 4),
+        time=lambda wildcards, attempt: 30 + ((attempt - 1) * 60),
+        partition="compute,hugemem,vgpu",
+    shell:
+        "seqkit "
+        "stats "
+        "-j {threads} "
+        "-a {input.reads} "
+        "-o {output.report} "
+        "2>&1 | tee {log} "
+
+
+rule report_seqkit_unassembled_reverse:
+    input:
+        reads=collect(
+            os.path.join(
+                "results", RUN, "01_assembled", "{samples}.unassembled.reverse.fastq"
+            ),
+            samples=SAMPLES.samples,
+        ),
+    output:
+        report=os.path.join(
+            "results", RUN, "00_QC", "report_seqkit_unassembled_reverse.txt"
+        ),
+    log:
+        os.path.join("results", RUN, "logs", "report_seqkit_unassembled_reverse.log"),
+    benchmark:
+        os.path.join(
+            "results", RUN, "benchmarks", "report_seqkit_unassembled_reverse.txt"
+        )
+    conda:
+        seqkit_env
+    threads: 12
+    resources:
+        mem_gb=lambda wildcards, attempt: 4 + ((attempt - 1) * 4),
+        time=lambda wildcards, attempt: 30 + ((attempt - 1) * 60),
+        partition="compute,hugemem,vgpu",
+    shell:
+        "seqkit "
+        "stats "
+        "-j {threads} "
+        "-a {input.reads} "
+        "-o {output.report} "
+        "2>&1 | tee {log} "
+
+
+# def get_seqkit_passing_samples(wildcards, minReads=min_reads, library=LIBRARY):
+#     file = checkpoints.report_seqkit_raw.get().output[0]
+#     qc_stats = pd.read_csv(file, delimiter = r"\s+")
+#     qc_stats["num_seqs"] = qc_stats["num_seqs"].str.replace(",", "").astype(int)
+#     qc_passed = qc_stats.loc[qc_stats["num_seqs"].astype(int) > minReads]
+#     passed = qc_passed['file'].str.split("/").str[-1].str.split(".").str[0].tolist()
+#     return expand(os.path.join("results", library, "02_kneaddata/{samples}.fastq.gz"), samples = passed)
+#
+
+
+rule cutadapt_amplicon_demux:
+    input:
+        assembled=os.path.join(
+            "results", RUN, "01_assembled", "{samples}.assembled.fastq"
+        ),
+    output:
+        demuxed_dir=directory(os.path.join("results", RUN, "02_cutadapt", "{samples}")),
+    log:
+        os.path.join("results", RUN, "logs", "cutadapt_amplicon_demux.{samples}.log"),
+    benchmark:
+        os.path.join(
+            "results", RUN, "benchmarks", "cutadapt_amplicon_demux.{samples}.txt"
+        )
+    conda:
+        cutadapt_env
+    threads: 8
+    resources:
+        mem_gb=8,
+        time=60,
+        partition="compute,hugemem,vgpu",
+    params:
+        barcodes="resources/amplicon_barcodes.fasta",
+    shell:
+        "mkdir -p {output.demuxed_dir} && "
+        "cat {input.assembled} | "
+        "cutadapt "
+        "-j {threads} "
+        "--discard-untrimmed "
+        "--no-indels "
+        "-e 0 "
+        "--action=none "
+        "-g file:{params.barcodes} "
+        r'-o "{output.demuxed_dir}/{wildcards.samples}.{{name}}.fastq.gz" '
+        "-"
+
+
+# def get_cutadapt_demux(wildcards, extension=".fastq.gz", library=LIBRARY):
+#     directory = checkpoints.cutadapt.get().output[0]
+#     files = [subpath(f, basename=True) for f in os.listdir(directory) if f.endswith(extension)]
+#     basenames = [f.replace(extension, '') for f in files]
+#     return expand(os.path.join("results", library, "01_cutadapt/{samples}.fastq.gz"), samples = basenames)
+#
+#

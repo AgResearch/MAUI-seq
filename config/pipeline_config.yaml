@@ -1,2 +1,6 @@
 # pipeline config file
 # include pipeline parameters here
+
+RUN_PATH: "DEFAULT_RUN_ID"
+
+# pipeline parameters

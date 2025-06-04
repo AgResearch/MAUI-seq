@@ -14,14 +14,14 @@ cluster-generic-submit-cmd:
     --parsable
 cluster-generic-cancel-cmd: scancel
 default-resources:
-  - account=2023-mbie-rumen-gbs
+  - account=2025_bjp_maui-seq
   - partition=compute
   - time=30
   - mem_gb=8
 restart-times: 3
 max-jobs-per-second: 10
 max-status-checks-per-second: 1
-local-cores: 2
+local-cores: 4
 latency-wait: 600
 jobs: 100
 keep-going: True
@@ -29,4 +29,4 @@ rerun-incomplete: True
 printshellcmds: True
 scheduler: greedy
 use-conda: True
-rerun-trigger: mtime
+use-singularity: True
