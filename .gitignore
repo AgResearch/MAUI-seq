@@ -2,3 +2,5 @@ results/
 logs/
 .snakemake/
 test/
+resources/Test/MAUIcount_output/
+resources/Test/fastq_file_list.txt
