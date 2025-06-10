@@ -23,6 +23,8 @@ os.system('echo "  CONDA VERSION: $(conda --version)"')
 configfile: "config/pipeline_config.yaml"
 
 
+amplicons = ["recA", "rpoB", "nodA", "nodD"]
+
 # Expected fastq data to be generated using wgs_prism
 RUN_PATH = config["RUN_PATH"]
 FASTQ_PATH = os.path.join(config["RUN_PATH"], "SampleSheet", "bclconvert")
@@ -42,7 +44,7 @@ cutadapt_env = "envs/cutadapt-4.4.yaml"
 
 
 wildcard_constraints:
-    samlpes=r"[a-zA-Z0-9\-\_]+",
+    samples=r"[a-zA-Z0-9\-\_]+",
 
 
 rule all:
@@ -53,8 +55,13 @@ rule all:
         os.path.join("results", RUN, "00_QC", "report_seqkit_unassembled_forward.txt"),
         os.path.join("results", RUN, "00_QC", "report_seqkit_unassembled_reverse.txt"),
         collect(
-            os.path.join("results", RUN, "02_cutadapt", "{samples}"),
+            os.path.join("results", RUN, "03_amplicons", "{amplicons}", "{samples}.{amplicons}.fastq"),
+            amplicons=amplicons,
             samples=SAMPLES.samples,
+        ),
+        collect(
+            os.path.join("results", RUN, "04_MAUIcount", "{amplicons}", "MAUIcount_output", "summary.txt"),
+            amplicons=amplicons,
         ),
 
 
@@ -262,11 +269,11 @@ rule report_seqkit_unassembled_reverse:
 #     qc_stats["num_seqs"] = qc_stats["num_seqs"].str.replace(",", "").astype(int)
 #     qc_passed = qc_stats.loc[qc_stats["num_seqs"].astype(int) > minReads]
 #     passed = qc_passed['file'].str.split("/").str[-1].str.split(".").str[0].tolist()
-#     return expand(os.path.join("results", library, "02_kneaddata/{samples}.fastq.gz"), samples = passed)
+#     return collect(os.path.join("results", library, "02_kneaddata/{samples}.fastq.gz"), samples = passed)
 #
 
 
-rule cutadapt_amplicon_demux:
+checkpoint cutadapt_amplicon_demux:
     input:
         assembled=os.path.join(
             "results", RUN, "01_assembled", "{samples}.assembled.fastq"
@@ -302,10 +309,97 @@ rule cutadapt_amplicon_demux:
         "-"
 
 
-# def get_cutadapt_demux(wildcards, extension=".fastq.gz", library=LIBRARY):
-#     directory = checkpoints.cutadapt.get().output[0]
-#     files = [subpath(f, basename=True) for f in os.listdir(directory) if f.endswith(extension)]
-#     basenames = [f.replace(extension, '') for f in files]
-#     return expand(os.path.join("results", library, "01_cutadapt/{samples}.fastq.gz"), samples = basenames)
-#
-#
+def get_amplicon_files(wildcards):
+    import glob
+
+    checkpoint_output = checkpoints.cutadapt_amplicon_demux.get(
+        samples=wildcards.samples
+    ).output[0]
+    # Get all .fastq.gz files in the directory
+    files = glob.glob(
+        os.path.join(checkpoint_output, f"{wildcards.samples}.*.fastq.gz")
+    )
+    # Filter for the specific amplicon
+    target_file = os.path.join(
+        checkpoint_output, f"{wildcards.samples}.{wildcards.amplicons}.fastq.gz"
+    )
+    return target_file
+
+
+rule gather_gene_amplicons:
+    input:
+        demuxed_file=get_amplicon_files,
+    output:
+        gene_amplicon=os.path.join(
+            "results",
+            RUN,
+            "03_amplicons",
+            "{amplicons}",
+            "{samples}.{amplicons}.fastq",
+        ),
+    resources:
+        mem_gb=2,
+        time=10,
+        partition="compute,hugemem,vgpu",
+    shell:
+        """
+        gunzip -c {input.demuxed_file} > {output.gene_amplicon}
+    
+        """
+
+
+rule run_MAUIcount:
+    input:
+        amplicon_files=lambda wildcards: collect(
+            os.path.join("results", RUN, "03_amplicons", wildcards.amplicons, ("{samples}." + wildcards.amplicons + ".fastq")),
+            samples=SAMPLES.samples,
+        ),
+    output:
+        results_dir=directory(
+            os.path.join("results", RUN, "04_MAUIcount", "{amplicons}")
+        ),
+        summary=os.path.join(
+            "results",
+            RUN,
+            "04_MAUIcount",
+            "{amplicons}",
+            "MAUIcount_output",
+            "summary.txt",
+        ),
+    params:
+        amplicon_dir=lambda wildcards: os.path.join(
+            "results", RUN, "03_amplicons", wildcards.amplicons
+        ),
+        amplicon_config="resources/amplicon_config.yaml",
+    log:
+        os.path.join("results", RUN, "04_MAUIcount", "{amplicons}", "MAUIcount.{amplicons}.log"),
+    benchmark:
+        os.path.join("results", RUN, "benchmarks", "MAUIcount.{amplicons}.txt")
+    conda:
+        "envs/mauiseq.yaml"
+    threads: 1
+    resources:
+        mem_gb=8,
+        time=120,
+        partition="compute,hugemem,vgpu",
+    shell:
+        """
+        
+        # Create symbolic links in the MAUIcount results directory
+        for FILE in {input.amplicon_files}; do
+            ln -s $(pwd)/$FILE $(pwd)/{output.results_dir}/$(basename $FILE)
+        done
+        
+        echo "Links created in {output.results_dir}:"
+        ls -lh {output.results_dir}
+
+        echo "Running MAUIcount for {wildcards.amplicons}."
+
+        # Run MAUIcount
+        workflow/scripts/MAUIcount.py \
+            --working-folder {output.results_dir} \
+            --amplicon-config {params.amplicon_config} \
+            --gene {wildcards.amplicons} \
+            --output-read-counts \
+            2>&1 | tee {log}
+        """
