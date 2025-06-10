@@ -42,6 +42,10 @@ in this file will be included in the analysis. If this file is not present, it w
 created with a list of all files that have the extension .fastq.
 
 """
+epilog_text ="""
+Written by Peter Young. Version 1.01 on 20 January 2020.
+Refactored by Ben Perry. Version 2.0 on 10 June 2025.
+"""
 
 start_time = datetime.datetime.now()
 script_file = os.path.basename(__file__)
@@ -55,7 +59,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description=mauiseq_description,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Written by Peter Young. Version 1.01 on 20 January 2020."
+        epilog=epilog_text
     )
     
     parser.add_argument(

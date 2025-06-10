@@ -1,6 +1,95 @@
 
 # **Fork of MAUI-seq for use at AgResearch**
 
+### MAUIsort.py - deprecated when run as a Snakemake workflow. Cutadapt is used in place to demultiplex the gene specific amplicon sequencing reads after paired-read assembly using PEAR.
+### MC_parameters.py - deprecated. Amplicon specific parameters are now passed via an amplicon_config.yaml file.
+### MAUIcount.py - refactored as a command-line utility for integration with Snakemake. The main analysis code has been left untouched and encapsulated in main().
+
+```
+usage: python MAUIcount.py [-h] [--working-folder WORKING_FOLDER] [--amplicon-config AMPLICON_CONFIG] [--fastq-file-list FASTQ_FILE_LIST] [--read-diff READ_DIFF]
+                    [--reject-threshold REJECT_THRESHOLD] [--add-limit ADD_LIMIT] [--output-types {3,4}] [--output-read-counts] --gene
+                    {recA,rpoB,nodA,nodD,viciae_nodD}
+
+MAUIcount: Analyze amplicon sequences with UMI-based error correction
+
+This script reads amplicon sequences from a set of fastq files.
+The first UMI_len bases of each read are a random tag (UMI or Unique Molecular Identifier).
+The script keeps track of how many times each UMI is used with each unique sequence.
+For the set of samples, outputs are files with a list of fasta sequences in descending rank
+order of abundance, and corresponding tables with the counts of each sequence in each sample.
+
+Three output sets are produced by default:
+
+"accepted_sequences": the main MAUI-seq output, using secondary sequences to filter out errors
+
+"all_primary_sequences": the same UMI counts before error filtering
+
+"read_sequences": 'conventional' analysis of the sequences, ignoring UMIs
+
+An additional output set can be produced by setting output_types = 4. This has the same 
+filtering as accepted_sequences, but applied on a per-sample basis, rather than on totals 
+across all samples. If allele frequencies vary greatly across samples, this would be 
+preferable in principle, but it is not reliable unless read counts are very high. Otherwise,
+it can lead to sequences being stochastically deleted from some samples but not others.
+
+In all cases, the outputs are truncated to discard rare sequences that would have
+frequencies below add_limit in the overall set of samples. 
+
+Additional output files are summary.txt (various data about the run) and UMI_stats.tab 
+(information on the distribution of read numbers per UMI that may be useful for optimising
+the protocol).
+
+A file amplicon_config.yaml specifies the files to be analysed and gene-specific parameters.
+
+If there is a file fastq_file_list.txt in the same folder as the data, only the files listed 
+in this file will be included in the analysis. If this file is not present, it will be  
+created with a list of all files that have the extension .fastq.
+
+options:
+  -h, --help            show this help message and exit
+  --working-folder WORKING_FOLDER
+                        Path to folder containing FASTQ files.
+  --amplicon-config AMPLICON_CONFIG
+                        Path to amplicon configuration file.
+  --fastq-file-list FASTQ_FILE_LIST
+                        Path to a file listing FASTQ files to process. If not provided, all .fastq files in the working folder will be used.
+  --read-diff READ_DIFF
+                        Count UMI only if most abundant sequence has at least read_diff more reads than the next.
+  --reject-threshold REJECT_THRESHOLD
+                        Reject sequences that occur as second sequences with UMIs at least reject_threshold times as often as they occur as the primary
+                        sequence.
+  --add-limit ADD_LIMIT
+                        Sequences are included, in rank order, until the next would add a fraction less than add_limit (i.e. this discards sequences with
+                        an overall relative abundance less than add_limit).
+  --output-types {3,4}  If set to 4, additional output is produced based on filtering separately for each sample.
+  --output-read-counts  Output the total number of reads contributing to the UMI primary and secondary counts.
+  --gene {recA,rpoB,nodA,nodD,viciae_nodD}
+                        Gene amplicon to analyze.
+
+Written by Peter Young. Version 1.01 on 20 January 2020.
+Refactored by Ben Perry. Version 2.0 on 10 June 2025.
+```
+
+A conda environment config for MAUIcount.py can be found in `workflow/envs/mauiseq.yaml`. Amplicon configuration parameters must be defined in a yaml file, and passed via the CLI, the default path is: `resources/amplicon_config.yaml`, configuration must appear:
+
+```
+genes:
+  recA:
+    UMI_len: 13
+    f_primer_len: 26
+    r_primer_len: 23
+    total_len: 313
+  
+[...]
+```
+Test data and results have been moved to `resources/Test` and are still valid to check installation and usage.
+
+Update B.J. Perry June 2025
+
+---
+---
+---
+
 MAUI-seq: Metabarcoding using amplicons with unique molecular identifiers to improve error correction
 ===
 
