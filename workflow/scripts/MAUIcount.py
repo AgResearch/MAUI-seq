@@ -115,6 +115,7 @@ def parse_arguments():
     
     parser.add_argument(
         "--output-read-counts",
+        default=False,
         action="store_true",
         help="Output the total number of reads contributing to the UMI primary and secondary counts."
     )
