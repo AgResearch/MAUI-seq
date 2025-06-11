@@ -85,7 +85,7 @@ genes:
 Test data and results have been moved to `resources/Test` and are still valid to check installation and usage. Test data can be used with the following command after activating the mauiseq.yaml conda environment:
 
 ```
-python workflow/scripts/MAUIcount.py --working-folder resources/Test --amplicon-config resources/amplicon_config.yaml --gene recA
+python workflow/scripts/MAUIcount.py --working-folder resources/Test --amplicon-config resources/amplicon_config_Test.yaml --gene recA
 
 ```
 
