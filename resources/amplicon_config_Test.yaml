@@ -1,31 +1,31 @@
 genes:
   recA:
-    UMI_len: 12
+    UMI_len: 13
     f_primer_len: 26
     r_primer_len: 23
-    total_len: 311
+    total_len: 313
   
   rpoB:
-    UMI_len: 12
+    UMI_len: 13
     f_primer_len: 19
     r_primer_len: 20
-    total_len: 304
+    total_len: 306
   
   nodA:
-    UMI_len: 12
+    UMI_len: 13
     f_primer_len: 17
     r_primer_len: 24
-    total_len: 312
+    total_len: 314
 
   nodD:
-    UMI_len: 12
+    UMI_len: 13
     f_primer_len: 23
     r_primer_len: 18
-    total_len: 306
+    total_len: 308
 
   #For viciae nodD (see doi.org/10.1111/nph.16392)
   viciae_nodD:
-    UMI_len: 12
+    UMI_len: 13
     f_primer_len: 23
     r_primer_len: 21
     total_len: 193
