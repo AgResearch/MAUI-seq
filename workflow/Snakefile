@@ -63,6 +63,7 @@ rule all:
             os.path.join("results", RUN, "04_MAUIcount", "{amplicons}", "MAUIcount_output", "summary.txt"),
             amplicons=amplicons,
         ),
+        os.path.join("results", RUN, "00_QC", "report_seqkit_amplicons_demuxed.txt"),
 
 
 rule report_seqkit_raw:
@@ -91,6 +92,8 @@ rule report_seqkit_raw:
     shell:
         "seqkit "
         "stats "
+        "--basename "
+        "--tabular "
         "-j {threads} "
         "-a {input.read1} {input.read2} "
         "-o {output} "
@@ -161,6 +164,8 @@ rule report_seqkit_assembled:
     shell:
         "seqkit "
         "stats "
+        "--basename "
+        "--tabular "
         "-j {threads} "
         "-a {input.reads} "
         "-o {output.report} "
@@ -189,6 +194,8 @@ rule report_seqkit_discarded:
     shell:
         "seqkit "
         "stats "
+        "--basename "
+        "--tabular "
         "-j {threads} "
         "-a {input.reads} "
         "-o {output.report} "
@@ -223,6 +230,8 @@ rule report_seqkit_unassembled_forward:
     shell:
         "seqkit "
         "stats "
+        "--basename "
+        "--tabular "
         "-j {threads} "
         "-a {input.reads} "
         "-o {output.report} "
@@ -257,20 +266,12 @@ rule report_seqkit_unassembled_reverse:
     shell:
         "seqkit "
         "stats "
+        "--basename "
+        "--tabular "
         "-j {threads} "
         "-a {input.reads} "
         "-o {output.report} "
         "2>&1 | tee {log} "
-
-
-# def get_seqkit_passing_samples(wildcards, minReads=min_reads, library=LIBRARY):
-#     file = checkpoints.report_seqkit_raw.get().output[0]
-#     qc_stats = pd.read_csv(file, delimiter = r"\s+")
-#     qc_stats["num_seqs"] = qc_stats["num_seqs"].str.replace(",", "").astype(int)
-#     qc_passed = qc_stats.loc[qc_stats["num_seqs"].astype(int) > minReads]
-#     passed = qc_passed['file'].str.split("/").str[-1].str.split(".").str[0].tolist()
-#     return collect(os.path.join("results", library, "02_kneaddata/{samples}.fastq.gz"), samples = passed)
-#
 
 
 checkpoint cutadapt_amplicon_demux:
@@ -348,6 +349,41 @@ rule gather_gene_amplicons:
         """
 
 
+rule report_seqkit_amplicons_demuxed:
+    input:
+        reads=collect(
+            os.path.join("results", RUN, "03_amplicons", "{amplicons}", "{samples}.{amplicons}.fastq"),
+            amplicons=amplicons,
+            samples=SAMPLES.samples,
+        ),
+    output:
+        report=os.path.join(
+            "results", RUN, "00_QC", "report_seqkit_amplicons_demuxed.txt"
+        ),
+    log:
+        os.path.join("results", RUN, "logs", "report_seqkit_amplicons_demuxed.log"),
+    benchmark:
+        os.path.join(
+            "results", RUN, "benchmarks", "report_seqkit_amplicons_demuxed.txt"
+        )
+    conda:
+        seqkit_env
+    threads: 12
+    resources:
+        mem_gb=lambda wildcards, attempt: 4 + ((attempt - 1) * 4),
+        time=lambda wildcards, attempt: 30 + ((attempt - 1) * 60),
+        partition="compute,hugemem,vgpu",
+    shell:
+        "seqkit "
+        "stats "
+        "--basename "
+        "--tabular "
+        "-j {threads} "
+        "-a {input.reads} "
+        "-o {output.report} "
+        "2>&1 | tee {log} "
+        
+
 rule run_MAUIcount:
     input:
         amplicon_files=lambda wildcards: collect(
@@ -400,6 +436,6 @@ rule run_MAUIcount:
             --working-folder {output.results_dir} \
             --amplicon-config {params.amplicon_config} \
             --gene {wildcards.amplicons} \
-            --output-read-counts \
+            --output-types 4 \
             2>&1 | tee {log}
         """
